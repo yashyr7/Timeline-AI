@@ -38,7 +38,6 @@ def _determine_search_date_range(workflow: WorkflowSchema, now_utc: datetime) ->
     if workflow.last_run_at_utc is not None:
         return workflow.last_run_at_utc
 
-    # First run: use start_time or default to N days ago
     if workflow.start_time_utc < now_utc:
         return workflow.start_time_utc
 
