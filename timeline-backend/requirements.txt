@@ -4,3 +4,5 @@ celery[amqp]
 redis
 pydantic
 firebase-admin
+exa-py
+anthropic

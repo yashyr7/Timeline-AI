@@ -29,6 +29,9 @@ class TaskSchema(BaseModel):
   owner_id: str
   status: str
   result: Optional[str] = None
+  query_analysis: Optional[dict] = None
+  search_results: Optional[dict] = None
+  agent_execution_times: Optional[dict] = None
   scheduled_run_at: Optional[datetime] = None
   created_at: Optional[datetime] = None
   completed_at: Optional[datetime] = None

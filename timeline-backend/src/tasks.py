@@ -1,7 +1,9 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+import time
 from celery import Celery
 from src.schema import TaskSchema, WorkflowSchema
 from src.services.firebase_client import get_workflow_ref
+from src.services.agents import analyze_query, search_with_exa, analyze_content
 from src.utils import calculate_next_run
 
 celery_app = Celery('tasks', broker='amqp://timeline:timeline@localhost:5672/timelinehost', backend='redis://localhost:6379/0')
@@ -24,20 +26,56 @@ def schedule_task(self, user_id: str = None, workflow_id: str = None):
 
         print(f"Fetching response for workflow query: {workflow.query}")
 
-        result = "Expample response from LLM API for query: " + workflow.query
+        # Track execution times for each agent
+        agent_times = {}
+
+        # Agent 1: Analyze the query
+        print("[Task] Starting Agent 1: Query Analyzer")
+        agent1_start = time.time()
+        query_analysis = analyze_query(workflow.query)
+        agent_times["agent1_query_analyzer"] = time.time() - agent1_start
+
+        # Agent 2: Search with Exa
+        print("[Task] Starting Agent 2: Exa Search")
+        agent2_start = time.time()
+
+        # Determine date range for search
         now_utc = datetime.now(timezone.utc)
+        if workflow.last_run_at_utc is not None:
+            # Use last run time as start date
+            start_date = workflow.last_run_at_utc
+        else:
+            # First run: use start_time or default to 7 days ago
+            if workflow.start_time_utc < now_utc:
+                start_date = workflow.start_time_utc
+            else:
+                start_date = now_utc - timedelta(days=7)
+
+        search_results = search_with_exa(query_analysis, start_date, now_utc)
+        agent_times["agent2_exa_search"] = time.time() - agent2_start
+
+        # Agent 3: Analyze content and generate answer
+        print("[Task] Starting Agent 3: Content Analyzer")
+        agent3_start = time.time()
+        result = analyze_content(workflow.query, search_results)
+        agent_times["agent3_content_analyzer"] = time.time() - agent3_start
+
+        agent_times["total_execution_time"] = sum(agent_times.values())
+        print(f"[Task] All agents completed in {agent_times['total_execution_time']:.2f}s")
 
         current_task_id = getattr(self.request, "id", None)
 
         # Create a Task entry for the first run
         if workflow.last_result is None:
-            result = result
             task: TaskSchema = TaskSchema(
                 task_id=current_task_id,
                 workflow_id=workflow_id,
                 owner_id=user_id,
                 status="COMPLETED",
                 result=result,
+                query_analysis=query_analysis,
+                search_results=search_results,
+                agent_execution_times=agent_times,
                 scheduled_run_at=now_utc,
                 created_at=now_utc,
                 completed_at=now_utc
@@ -50,6 +88,9 @@ def schedule_task(self, user_id: str = None, workflow_id: str = None):
             task_ref.update({
                 "status": "COMPLETED",
                 "result": result,
+                "query_analysis": query_analysis,
+                "search_results": search_results,
+                "agent_execution_times": agent_times,
                 "completed_at": now_utc
             })
         
